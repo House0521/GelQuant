@@ -1,0 +1,18 @@
+{
+  "name": "GelQuant - Protein Band Analyzer",
+  "short_name": "GelQuant",
+  "description": "Semi-quantitative analysis of protein fluorescence staining bands from gel images",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#0f172a",
+  "background_color": "#0f172a",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
