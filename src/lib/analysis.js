@@ -20,11 +20,24 @@ export function extractLaneProfile(img, lane, invert = false) {
     lum[j] = invert ? 255 - v : v;
   }
 
-  // Per-column minimum across all rows: the stable dark floor of each column
-  // (background outside the band, or the inter-band gap for band columns).
-  // Subtracting this means columns outside the actual band contribute zero
-  // regardless of how wide the lane is drawn, without over-subtracting when
-  // the band fills the full lane width.
+  if (lane.direction === 'h') {
+    // Horizontal lane: profile runs along X; average out rows using row-minimum baseline.
+    const rowMin = new Float32Array(laneH).fill(255);
+    for (let y = 0; y < laneH; y++)
+      for (let x = 0; x < laneW; x++) {
+        const v = lum[y * laneW + x];
+        if (v < rowMin[y]) rowMin[y] = v;
+      }
+    const profile = new Float32Array(laneW);
+    for (let x = 0; x < laneW; x++) {
+      let sum = 0;
+      for (let y = 0; y < laneH; y++) sum += lum[y * laneW + x] - rowMin[y];
+      profile[x] = sum;
+    }
+    return profile;
+  }
+
+  // Vertical lane (default): profile runs along Y; average out columns using col-minimum baseline.
   const colMin = new Float32Array(laneW).fill(255);
   for (let y = 0; y < laneH; y++) {
     for (let x = 0; x < laneW; x++) {

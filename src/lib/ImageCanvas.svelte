@@ -4,20 +4,24 @@
   export let imageDataUrl;
   export let lanes = [];
   export let selectedId = null;
+  export let rotation = 0;
 
   const dispatch = createEventDispatcher();
 
   let canvasEl;
   let svgEl;
-  let imgW = 0;
-  let imgH = 0;
+  export let imgW = 0;
+  export let imgH = 0;
 
   // Interaction mode
   let mode = 'idle'; // 'idle' | 'drawing' | 'drag-handle'
-  let drawX1 = 0;
-  let drawX2 = 0;
+  let drawA = 0; // start coordinate on the draw axis
+  let drawB = 0; // end coordinate on the draw axis
   let handleLaneId = null;
   let handleEdge = null; // 'y1' | 'y2'
+
+  // When rotated 90/270, dragging horizontally in screen space varies SVG Y, not X.
+  $: isHoriz = rotation === 90 || rotation === 270;
 
   $: if (imageDataUrl && canvasEl) {
     const image = new Image();
@@ -53,32 +57,34 @@
     e.preventDefault();
   }
 
+  function hitTest(pt, lane) {
+    return pt.x >= Math.min(lane.x1, lane.x2) && pt.x <= Math.max(lane.x1, lane.x2)
+        && pt.y >= (lane.y1 ?? 0)              && pt.y <= (lane.y2 ?? imgH);
+  }
+
   function onMouseDown(e) {
     if (e.button === 2) return;
     if (e.touches && e.touches.length > 1) { mode = 'idle'; return; }
-    const { x } = getSVGPoint(e);
+    const pt = getSVGPoint(e);
 
-    // Click inside an existing lane → select it
     for (const lane of lanes) {
-      const lx1 = Math.min(lane.x1, lane.x2);
-      const lx2 = Math.max(lane.x1, lane.x2);
-      if (x >= lx1 && x <= lx2) {
+      if (hitTest(pt, lane)) {
         dispatch('laneselect', lane.id);
         return;
       }
     }
 
-    // Otherwise start drawing a new lane
     mode = 'drawing';
-    drawX1 = x;
-    drawX2 = x;
+    drawA = isHoriz ? pt.y : pt.x;
+    drawB = drawA;
     if (!e.touches) e.preventDefault();
   }
 
   function onMouseMove(e) {
     if (e.touches && e.touches.length > 1) { mode = 'idle'; return; }
     if (mode === 'drawing') {
-      drawX2 = getSVGPoint(e).x;
+      const pt = getSVGPoint(e);
+      drawB = isHoriz ? pt.y : pt.x;
       if (!e.touches) e.preventDefault();
     } else if (mode === 'drag-handle') {
       const { y } = getSVGPoint(e);
@@ -95,25 +101,24 @@
   }
 
   function onMouseUp() {
-    if (mode === 'drawing' && Math.abs(drawX2 - drawX1) >= 5) {
-      dispatch('addlane', {
-        x1: Math.min(drawX1, drawX2),
-        x2: Math.max(drawX1, drawX2),
-      });
+    if (mode === 'drawing' && Math.abs(drawB - drawA) >= 5) {
+      if (isHoriz) {
+        dispatch('addlane', { y1: Math.min(drawA, drawB), y2: Math.max(drawA, drawB), direction: 'h' });
+      } else {
+        dispatch('addlane', { x1: Math.min(drawA, drawB), x2: Math.max(drawA, drawB), direction: 'v' });
+      }
     }
     mode = 'idle';
-    drawX1 = drawX2 = 0;
+    drawA = drawB = 0;
     handleLaneId = null;
     handleEdge = null;
   }
 
   function onContextMenu(e) {
     e.preventDefault();
-    const { x } = getSVGPoint(e);
+    const pt = getSVGPoint(e);
     for (const lane of lanes) {
-      const lx1 = Math.min(lane.x1, lane.x2);
-      const lx2 = Math.max(lane.x1, lane.x2);
-      if (x >= lx1 && x <= lx2) {
+      if (hitTest(pt, lane)) {
         dispatch('laneschange',
           lanes.filter(l => l.id !== lane.id).map((l, i) => ({ ...l, label: `Lane ${i + 1}` }))
         );
@@ -227,15 +232,19 @@
 
       <!-- New-lane drawing preview -->
       {#if mode === 'drawing'}
-        {@const dx = Math.min(drawX1, drawX2)}
-        {@const dw = Math.abs(drawX2 - drawX1)}
-        <rect
-          x={dx} y={0} width={dw} height={imgH}
-          fill="rgba(255,255,255,0.08)"
-          stroke="white"
-          stroke-width="3"
-          stroke-dasharray="12 6"
-          pointer-events="none" />
+        {#if isHoriz}
+          {@const dy = Math.min(drawA, drawB)}
+          {@const dh = Math.abs(drawB - drawA)}
+          <rect x={0} y={dy} width={imgW} height={dh}
+            fill="rgba(255,255,255,0.08)" stroke="white"
+            stroke-width="3" stroke-dasharray="12 6" pointer-events="none" />
+        {:else}
+          {@const dx = Math.min(drawA, drawB)}
+          {@const dw = Math.abs(drawB - drawA)}
+          <rect x={dx} y={0} width={dw} height={imgH}
+            fill="rgba(255,255,255,0.08)" stroke="white"
+            stroke-width="3" stroke-dasharray="12 6" pointer-events="none" />
+        {/if}
       {/if}
     </svg>
   {/if}

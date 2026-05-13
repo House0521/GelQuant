@@ -16,6 +16,25 @@
   let analyzed = false;
   let analyzing = false;
   let fileInput;
+  let zoom = 1;
+  let rotation = 0;
+  let imgW = 0;
+  let imgH = 0;
+
+  // Visual (post-rotation) dimensions — 90/270 swaps W and H
+  $: isRotated90 = rotation === 90 || rotation === 270;
+  $: visW = isRotated90 ? imgH : imgW;
+  $: visH = isRotated90 ? imgW : imgH;
+
+  function zoomIn()  { zoom = parseFloat((zoom + 0.05).toFixed(2)); }
+  function zoomOut() { zoom = Math.max(0.01, parseFloat((zoom - 0.05).toFixed(2))); }
+  function handleZoomInput(e) {
+    const v = parseFloat(e.target.value);
+    if (!isNaN(v) && v > 0) zoom = v / 100;
+  }
+  function rotateLeft()  { rotation = (rotation - 90 + 360) % 360; }
+  function rotateRight() { rotation = (rotation + 90) % 360; }
+  function resetView()   { zoom = 1; rotation = 0; }
 
   // Reset analysis when settings change
   $: { invertMode; sigma; minProminence; analyzed = false; }
@@ -36,14 +55,16 @@
   }
 
   function handleAddLane({ detail }) {
+    const horiz = detail.direction === 'h';
     lanes = [...lanes, {
       id: Date.now(),
       label: `Lane ${lanes.length + 1}`,
       color: COLORS[lanes.length % COLORS.length],
-      x1: detail.x1,
-      x2: detail.x2,
-      y1: 0,
-      y2: img?.naturalHeight ?? 0,
+      direction: detail.direction,
+      x1: horiz ? 0 : detail.x1,
+      x2: horiz ? (img?.naturalWidth ?? 0) : detail.x2,
+      y1: horiz ? detail.y1 : 0,
+      y2: horiz ? detail.y2 : (img?.naturalHeight ?? 0),
       profile: null,
       smoothedProfile: null,
       bands: [],
@@ -133,11 +154,17 @@
           Dark bands (invert intensity)
         </label>
         <label class="range-label">
-          <span>Smoothing (σ = {sigma})</span>
+          <div class="param-row">
+            <span>Smoothing (σ)</span>
+            <input type="number" min="0.5" max="10" step="0.5" bind:value={sigma} class="num-input" />
+          </div>
           <input type="range" min="0.5" max="10" step="0.5" bind:value={sigma} />
         </label>
         <label class="range-label">
-          <span>Min prominence = {minProminence}</span>
+          <div class="param-row">
+            <span>Min prominence</span>
+            <input type="number" min="10" max="5000" step="10" bind:value={minProminence} class="num-input" />
+          </div>
           <input type="range" min="10" max="5000" step="10" bind:value={minProminence} />
         </label>
       </section>
@@ -180,14 +207,46 @@
 
   <div class="workspace">
     {#if imageDataUrl}
-      <div class="canvas-area">
-        <ImageCanvas
-          {imageDataUrl}
-          {lanes}
-          {selectedId}
-          on:addlane={handleAddLane}
-          on:laneselect={({ detail }) => selectedId = detail}
-          on:laneschange={handleLanesChange} />
+      <div class="view-controls">
+        <button class="icon-btn" on:click={zoomOut} title="Zoom out">−</button>
+        <input
+          class="zoom-input"
+          type="number"
+          min="1"
+          step="5"
+          value={Math.round(zoom * 100)}
+          on:change={handleZoomInput}
+          title="Zoom %" />
+        <button class="icon-btn" on:click={zoomIn} title="Zoom in">+</button>
+        <div class="ctrl-sep"></div>
+        <button class="icon-btn" on:click={rotateLeft} title="Rotate 90° left">↺</button>
+        <button class="icon-btn" on:click={rotateRight} title="Rotate 90° right">↻</button>
+        {#if zoom !== 1 || rotation !== 0}
+          <button class="icon-btn reset-btn" on:click={resetView} title="Reset view">Reset</button>
+        {/if}
+      </div>
+      <!-- Outer wrapper reserves the correct layout space for the rotated+scaled image -->
+      <div class="canvas-wrapper" style="width:{visW * zoom}px; height:{visH * zoom}px;">
+        <!-- Inner div is centered in the wrapper, then rotated+scaled around its own center -->
+        <div class="canvas-area" style="
+          top:{(visH * zoom - imgH) / 2}px;
+          left:{(visW * zoom - imgW) / 2}px;
+          width:{imgW}px;
+          height:{imgH}px;
+          transform: rotate({rotation}deg) scale({zoom});
+          transform-origin: center center;
+        ">
+          <ImageCanvas
+            {imageDataUrl}
+            {lanes}
+            {selectedId}
+            {rotation}
+            bind:imgW
+            bind:imgH
+            on:addlane={handleAddLane}
+            on:laneselect={({ detail }) => selectedId = detail}
+            on:laneschange={handleLanesChange} />
+        </div>
       </div>
 
       {#if hasProfiles}
@@ -313,6 +372,22 @@
     color: var(--text-muted);
   }
   .range-label input[type="range"] { width: 100%; }
+  .param-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+  }
+  .num-input {
+    width: 58px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 11px;
+    padding: 2px 5px;
+    text-align: right;
+  }
 
   .lane-list { display: flex; flex-direction: column; gap: 4px; }
 
@@ -358,6 +433,48 @@
   }
   .rm-btn:hover { color: #f87171; }
 
+  /* ── View controls toolbar ── */
+  .view-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .icon-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s, color 0.12s;
+  }
+  .icon-btn:hover { background: var(--accent-dim); color: var(--accent); }
+  .reset-btn { font-size: 11px; width: auto; padding: 0 8px; }
+  .zoom-input {
+    width: 52px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 11px;
+    padding: 2px 5px;
+    text-align: right;
+    height: 28px;
+  }
+  .ctrl-sep {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    margin: 0 2px;
+  }
+
   /* ── Workspace ── */
   .workspace {
     flex: 1;
@@ -368,7 +485,13 @@
     gap: 16px;
     align-items: flex-start;
   }
-  .canvas-area { max-width: 100%; }
+  .canvas-wrapper {
+    position: relative;
+    flex-shrink: 0;
+  }
+  .canvas-area {
+    position: absolute;
+  }
 
   .profiles {
     display: flex;
