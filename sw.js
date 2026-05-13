@@ -1,4 +1,4 @@
-const CACHE = 'gelquant-v1';
+const CACHE = 'gelquant-v2';
 const PRECACHE = ['/', '/index.html', '/manifest.json'];
 
 self.addEventListener('install', e => {
