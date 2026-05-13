@@ -9,6 +9,7 @@
       band: i + 1,
       peak: band.peak,
       area: band.area != null ? band.area.toFixed(1) : '—',
+      prominence: band.prominence != null ? band.prominence.toFixed(1) : '—',
       relative: band.relative != null ? band.relative.toFixed(1) : '—',
     }))
   );
@@ -30,6 +31,7 @@
             <th>Band</th>
             <th>Peak (px)</th>
             <th>Area (AU)</th>
+            <th>Prominence</th>
             <th>Relative (%)</th>
           </tr>
         </thead>
@@ -43,6 +45,7 @@
               <td>{row.band}</td>
               <td>{row.peak}</td>
               <td>{row.area}</td>
+              <td>{row.prominence}</td>
               <td><strong>{row.relative}</strong></td>
             </tr>
           {/each}

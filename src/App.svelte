@@ -12,7 +12,7 @@
   let selectedId = null;
   let invertMode = false;
   let sigma = 3;
-  let minProminence = 5;
+  let minProminence = 200;
   let analyzed = false;
   let analyzing = false;
   let fileInput;
@@ -42,6 +42,8 @@
       color: COLORS[lanes.length % COLORS.length],
       x1: detail.x1,
       x2: detail.x2,
+      y1: 0,
+      y2: img?.naturalHeight ?? 0,
       profile: null,
       smoothedProfile: null,
       bands: [],
@@ -69,7 +71,15 @@
   async function analyze() {
     if (!img || !lanes.length || analyzing) return;
     analyzing = true;
-    await new Promise(r => img.complete ? r() : (img.onload = r));
+    await new Promise(r => {
+      if (img.complete && img.naturalHeight > 0) { r(); return; }
+      img.onload = r;
+      img.onerror = r;
+    });
+    if (!img.naturalHeight) {
+      analyzing = false;
+      return;
+    }
     const updated = lanes.map(lane => {
       const profile = extractLaneProfile(img, lane, invertMode);
       const smoothedProfile = gaussianSmooth(profile, sigma);
@@ -84,10 +94,10 @@
   function exportCSV() {
     const rows = lanes.flatMap(l =>
       l.bands.map((b, i) =>
-        `${l.label},${i + 1},${b.peak},${b.area.toFixed(1)},${b.relative.toFixed(1)}`
+        `${l.label},${i + 1},${b.peak},${b.area.toFixed(1)},${b.prominence.toFixed(1)},${b.relative.toFixed(1)}`
       )
     );
-    const csv = ['Lane,Band,Peak (px),Area (AU),Relative (%)'].concat(rows).join('\n');
+    const csv = ['Lane,Band,Peak (px),Area (AU),Prominence,Relative (%)'].concat(rows).join('\n');
     const a = Object.assign(document.createElement('a'), {
       href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
       download: 'gelquant_results.csv',
@@ -96,7 +106,8 @@
     URL.revokeObjectURL(a.href);
   }
 
-  $: hasResults = analyzed && lanes.some(l => l.bands?.length);
+  $: hasProfiles = analyzed && lanes.some(l => l.smoothedProfile?.length);
+  $: hasBands = analyzed && lanes.some(l => l.bands?.length);
 </script>
 
 <header>
@@ -127,7 +138,7 @@
         </label>
         <label class="range-label">
           <span>Min prominence = {minProminence}</span>
-          <input type="range" min="1" max="50" step="1" bind:value={minProminence} />
+          <input type="range" min="10" max="5000" step="10" bind:value={minProminence} />
         </label>
       </section>
 
@@ -179,12 +190,14 @@
           on:laneschange={handleLanesChange} />
       </div>
 
-      {#if hasResults}
+      {#if hasProfiles}
         <div class="profiles">
           {#each lanes.filter(l => l.smoothedProfile) as lane (lane.id)}
             <LaneProfile {lane} selected={selectedId === lane.id} />
           {/each}
         </div>
+      {/if}
+      {#if hasBands}
         <ResultsTable {lanes} onexport={exportCSV} />
       {/if}
     {:else}

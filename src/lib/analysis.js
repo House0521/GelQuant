@@ -1,25 +1,43 @@
 export function extractLaneProfile(img, lane, invert = false) {
   const x1 = Math.round(Math.min(lane.x1, lane.x2));
   const x2 = Math.round(Math.max(lane.x1, lane.x2));
+  const y1 = Math.round(Math.max(0, lane.y1 ?? 0));
+  const y2 = Math.round(Math.min(img.naturalHeight, lane.y2 ?? img.naturalHeight));
   const laneW = x2 - x1;
-  const imgH = img.naturalHeight;
+  const laneH = y2 - y1;
 
-  if (laneW <= 0 || imgH <= 0) return new Float32Array(0);
+  if (laneW <= 0 || laneH <= 0) return new Float32Array(0);
 
-  const canvas = new OffscreenCanvas(laneW, imgH);
+  const canvas = new OffscreenCanvas(laneW, laneH);
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(img, x1, 0, laneW, imgH, 0, 0, laneW, imgH);
-  const { data } = ctx.getImageData(0, 0, laneW, imgH);
+  ctx.drawImage(img, x1, y1, laneW, laneH, 0, 0, laneW, laneH);
+  const { data } = ctx.getImageData(0, 0, laneW, laneH);
 
-  const profile = new Float32Array(imgH);
-  for (let y = 0; y < imgH; y++) {
-    let sum = 0;
+  // Precompute luminance for all pixels once.
+  const lum = new Float32Array(laneW * laneH);
+  for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+    const v = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    lum[j] = invert ? 255 - v : v;
+  }
+
+  // Per-column minimum across all rows: the stable dark floor of each column
+  // (background outside the band, or the inter-band gap for band columns).
+  // Subtracting this means columns outside the actual band contribute zero
+  // regardless of how wide the lane is drawn, without over-subtracting when
+  // the band fills the full lane width.
+  const colMin = new Float32Array(laneW).fill(255);
+  for (let y = 0; y < laneH; y++) {
     for (let x = 0; x < laneW; x++) {
-      const idx = (y * laneW + x) * 4;
-      sum += 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+      const v = lum[y * laneW + x];
+      if (v < colMin[x]) colMin[x] = v;
     }
-    const avg = sum / laneW;
-    profile[y] = invert ? 255 - avg : avg;
+  }
+
+  const profile = new Float32Array(laneH);
+  for (let y = 0; y < laneH; y++) {
+    let sum = 0;
+    for (let x = 0; x < laneW; x++) sum += lum[y * laneW + x] - colMin[x];
+    profile[y] = sum;
   }
   return profile;
 }
